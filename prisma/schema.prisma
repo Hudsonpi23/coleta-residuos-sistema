@@ -1,0 +1,464 @@
+// Sistema de Coleta e Classificação de Resíduos
+// Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  ADMIN
+  GESTOR_OPERACAO
+  ALMOXARIFE
+  SUPERVISOR
+  COLETOR
+  TRIAGEM
+  VISUALIZADOR
+}
+
+enum CollectionStatus {
+  PENDENTE
+  EM_ANDAMENTO
+  COLETADO
+  NAO_COLETADO
+  CANCELADO
+}
+
+enum RunStatus {
+  AGENDADO
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
+}
+
+enum QualityGrade {
+  A
+  B
+  C
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUST
+}
+
+enum DestinationType {
+  COOPERATIVA
+  ATERRO
+  INDUSTRIA
+  COMPOSTAGEM
+}
+
+enum AttachmentKind {
+  FOTO
+  ASSINATURA
+  DOCUMENTO
+}
+
+// ============================================
+// MULTI-TENANT BASE
+// ============================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  employees        Employee[]
+  teams            Team[]
+  vehicles         Vehicle[]
+  collectionPoints CollectionPoint[]
+  routes           Route[]
+  materialTypes    MaterialType[]
+  destinations     Destination[]
+  stockLots        StockLot[]
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role      @default(VISUALIZADOR)
+  orgId        String
+  org          Organization @relation(fields: [orgId], references: [id])
+  employeeId   String?   @unique
+  employee     Employee? @relation(fields: [employeeId], references: [id])
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([orgId])
+}
+
+// ============================================
+// EMPLOYEE & TEAMS
+// ============================================
+
+model Employee {
+  id        String   @id @default(cuid())
+  name      String
+  cpf       String?
+  phone     String?
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User?
+  teamMembers TeamMember[]
+
+  @@index([orgId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members          TeamMember[]
+  routeAssignments RouteAssignment[]
+
+  @@index([orgId])
+}
+
+model TeamMember {
+  id         String   @id @default(cuid())
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  role       String?  // motorista, coletor, etc
+  createdAt  DateTime @default(now())
+
+  @@unique([teamId, employeeId])
+}
+
+// ============================================
+// VEHICLES
+// ============================================
+
+model Vehicle {
+  id           String   @id @default(cuid())
+  plate        String
+  model        String?
+  capacityKg   Float?
+  orgId        String
+  org          Organization @relation(fields: [orgId], references: [id])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  routeAssignments RouteAssignment[]
+  stockMovements   StockMovement[]
+
+  @@index([orgId])
+}
+
+// ============================================
+// COLLECTION POINTS
+// ============================================
+
+model CollectionPoint {
+  id        String   @id @default(cuid())
+  name      String
+  address   String
+  lat       Float?
+  lng       Float?
+  type      String?  // residencia, comercio, condominio, ecoponto
+  contact   String?
+  phone     String?
+  notes     String?
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  routeStops RouteStop[]
+
+  @@index([orgId])
+}
+
+// ============================================
+// ROUTES & PLANNING
+// ============================================
+
+model Route {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  stops       RouteStop[]
+  assignments RouteAssignment[]
+
+  @@index([orgId])
+}
+
+model RouteStop {
+  id            String   @id @default(cuid())
+  routeId       String
+  route         Route    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  pointId       String
+  point         CollectionPoint @relation(fields: [pointId], references: [id])
+  orderIndex    Int
+  plannedWindow String?  // ex: "08:00-10:00"
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  collectionEvents CollectionEvent[]
+
+  @@unique([routeId, orderIndex])
+  @@index([routeId])
+}
+
+model RouteAssignment {
+  id        String   @id @default(cuid())
+  routeId   String
+  route     Route    @relation(fields: [routeId], references: [id])
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id])
+  vehicleId String
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id])
+  date      DateTime 
+  shift     String?  // manha, tarde, noite
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs CollectionRun[]
+
+  @@unique([routeId, date, shift])
+  @@index([date])
+}
+
+// ============================================
+// COLLECTION EXECUTION
+// ============================================
+
+model CollectionRun {
+  id           String    @id @default(cuid())
+  assignmentId String
+  assignment   RouteAssignment @relation(fields: [assignmentId], references: [id])
+  status       RunStatus @default(AGENDADO)
+  startedAt    DateTime?
+  endedAt      DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  events         CollectionEvent[]
+  sortingBatches SortingBatch[]
+
+  @@index([assignmentId])
+  @@index([status])
+}
+
+model CollectionEvent {
+  id          String   @id @default(cuid())
+  runId       String
+  run         CollectionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stopId      String
+  stop        RouteStop @relation(fields: [stopId], references: [id])
+  status      CollectionStatus @default(PENDENTE)
+  arrivedAt   DateTime?
+  departedAt  DateTime?
+  lat         Float?
+  lng         Float?
+  notes       String?
+  skipReason  String?  // se NAO_COLETADO
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       CollectedItem[]
+  attachments Attachment[]
+
+  @@unique([runId, stopId])
+  @@index([runId])
+}
+
+model CollectedItem {
+  id             String   @id @default(cuid())
+  eventId        String
+  event          CollectionEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  materialTypeId String
+  materialType   MaterialType @relation(fields: [materialTypeId], references: [id])
+  quantity       Float
+  unit           String   @default("kg")
+  isEstimated    Boolean  @default(true)
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  @@index([eventId])
+}
+
+// ============================================
+// MATERIAL TYPES (TAXONOMY)
+// ============================================
+
+model MaterialType {
+  id                  String   @id @default(cuid())
+  name                String
+  category            String?
+  defaultUnit         String   @default("kg")
+  requiresSorting     Boolean  @default(true)
+  allowsContamination Boolean  @default(false)
+  referencePrice      Float?
+  orgId               String
+  org                 Organization @relation(fields: [orgId], references: [id])
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  collectedItems CollectedItem[]
+  sortedItems    SortedItem[]
+  stockLots      StockLot[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+// ============================================
+// SORTING / TRIAGEM
+// ============================================
+
+model SortingBatch {
+  id        String   @id @default(cuid())
+  runId     String
+  run       CollectionRun @relation(fields: [runId], references: [id])
+  sortedAt  DateTime @default(now())
+  sortedBy  String?  // userId
+  notes     String?
+  isClosed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     SortedItem[]
+  stockLots StockLot[]
+
+  @@index([runId])
+}
+
+model SortedItem {
+  id                String   @id @default(cuid())
+  batchId           String
+  batch             SortingBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  materialTypeId    String
+  materialType      MaterialType @relation(fields: [materialTypeId], references: [id])
+  weightKg          Float
+  qualityGrade      QualityGrade @default(B)
+  contaminationPct  Float?
+  contaminationNote String?
+  createdAt         DateTime @default(now())
+
+  @@index([batchId])
+}
+
+// ============================================
+// STOCK / ESTOQUE
+// ============================================
+
+model StockLot {
+  id             String   @id @default(cuid())
+  materialTypeId String
+  materialType   MaterialType @relation(fields: [materialTypeId], references: [id])
+  batchId        String?
+  batch          SortingBatch? @relation(fields: [batchId], references: [id])
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id])
+  totalKg        Float
+  availableKg    Float
+  qualityGrade   QualityGrade?
+  originNote     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  movements StockMovement[]
+
+  @@index([orgId])
+  @@index([materialTypeId])
+}
+
+model StockMovement {
+  id            String       @id @default(cuid())
+  lotId         String
+  lot           StockLot     @relation(fields: [lotId], references: [id])
+  type          MovementType
+  quantityKg    Float
+  destinationId String?
+  destination   Destination? @relation(fields: [destinationId], references: [id])
+  vehicleId     String?
+  vehicle       Vehicle?     @relation(fields: [vehicleId], references: [id])
+  invoiceRef    String?
+  notes         String?
+  movedBy       String?      // userId
+  movedAt       DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+
+  @@index([lotId])
+  @@index([movedAt])
+}
+
+// ============================================
+// DESTINATIONS
+// ============================================
+
+model Destination {
+  id        String          @id @default(cuid())
+  name      String
+  type      DestinationType
+  address   String?
+  contact   String?
+  phone     String?
+  orgId     String
+  org       Organization    @relation(fields: [orgId], references: [id])
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  movements StockMovement[]
+
+  @@index([orgId])
+}
+
+// ============================================
+// ATTACHMENTS / EVIDÊNCIAS
+// ============================================
+
+model Attachment {
+  id         String         @id @default(cuid())
+  eventId    String
+  event      CollectionEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  url        String
+  kind       AttachmentKind
+  filename   String?
+  uploadedAt DateTime       @default(now())
+
+  @@index([eventId])
+}
