@@ -32,7 +32,9 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
 
   const fetchUser = useCallback(async () => {
     try {
-      const res = await fetch("/api/me");
+      const res = await fetch("/api/me", {
+        credentials: "include",
+      });
       if (res.ok) {
         const data = await res.json();
         setUser(data.data);
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ email, password }),
     });
 
@@ -68,7 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
   };
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", { 
+      method: "POST",
+      credentials: "include",
+    });
     setUser(null);
     router.push("/login");
   };

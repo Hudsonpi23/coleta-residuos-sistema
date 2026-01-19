@@ -52,33 +52,44 @@ interface ReportSummary {
 function DashboardContent() {
   const [data, setData] = useState<ReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    // Check auth
-    const hasToken = document.cookie.includes("auth-token");
-    if (!hasToken) {
-      router.replace("/login");
-      return;
-    }
-
-    async function fetchData() {
+    async function checkAuthAndFetchData() {
       try {
-        const res = await fetch("/api/reports/summary");
+        // Verificar autenticação via API (cookie httpOnly)
+        const authRes = await fetch("/api/me", {
+          credentials: "include",
+        });
+        
+        if (!authRes.ok) {
+          router.replace("/login");
+          return;
+        }
+
+        setIsAuthenticated(true);
+
+        // Buscar dados do dashboard
+        const res = await fetch("/api/reports/summary", {
+          credentials: "include",
+        });
         const json = await res.json();
         if (json.success) {
           setData(json.data);
         }
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
+        router.replace("/login");
       } finally {
         setLoading(false);
       }
     }
-    fetchData();
+    
+    checkAuthAndFetchData();
   }, [router]);
 
-  if (!document.cookie.includes("auth-token")) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -335,32 +346,6 @@ function DashboardContent() {
 }
 
 export default function Home() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-zinc-950">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-zinc-400">Carregando...</span>
-        </div>
-      </div>
-    );
-  }
-
-  const hasToken = typeof document !== 'undefined' && document.cookie.includes("auth-token");
-
-  if (!hasToken) {
-    if (typeof window !== 'undefined') {
-      window.location.href = '/login';
-    }
-    return null;
-  }
-
   return (
     <AuthProvider>
       <div className="flex h-screen bg-zinc-950">
